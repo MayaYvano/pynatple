@@ -7,12 +7,8 @@ import struct
 from xrft.xrft import fft as _fft
 from xrft.xrft import ifft as _ifft
 from numpy.typing import NDArray
-from typing import Any, Dict, List, Tuple, Union
 
-# Borrowed from Optimization module.
-BitString = str
-Hyperparameter = Tuple[int | float, int | float]
-Individual = BitString | Hyperparameter
+from pynatple.prononuce import Hyperparameter, Individual #type: ignore
 
 def binary(
     input:Hyperparameter,
@@ -31,6 +27,8 @@ def unbinary(
     """
     Convert binary string representation back to hyperparameter value.
     """
+    if not isinstance(input, str):
+        raise TypeError("Input to unbinary must be a binary string.")
     bytes_val = int(input, 2).to_bytes((len(input) + 7) // 8, byteorder='big')
     return struct.unpack('ii', bytes_val)
 
@@ -61,45 +59,30 @@ def eval(
 
     try:
         if metric == 'rmse':
-            value = numpy.sqrt(numpy.nanmean((data**2)))
+            value = float(numpy.sqrt(numpy.nanmean((data**2))))
         elif metric == 'mae':
-            value = numpy.nanmean(numpy.abs(data))
+            value = float(numpy.nanmean(numpy.abs(data)))
         elif metric == 'mse':
-            value = numpy.nanmean((data**2))
+            value = float(numpy.nanmean((data**2)))
         elif metric == 'L1':
-            value = numpy.linalg.norm(data, ord=1)
+            value = float(numpy.linalg.norm(data, ord=1))
         elif metric == 'L2':
-            value = numpy.linalg.norm(data, ord=2)
+            value = float(numpy.linalg.norm(data, ord=2))
         elif metric == 'r2': # Im not sure, code below is suggested by copilot.
             # Calculate the r-squared value
             ss_res = numpy.nansum((data - numpy.nanmean(data))**2)
             ss_tot = numpy.nansum((data - numpy.nanmean(data))**2)
-            value = 1 - (ss_res / ss_tot)
+            value = float(1 - (ss_res / ss_tot))
         else:
             msg = f"Unknown metric: {metric}. Please use one of the following: 'rmse', 'mae', 'mse', 'L1', 'L2', 'r2'."
             raise ValueError(msg)
     
     except RuntimeWarning as e:
         print(f'RuntimeWarning: {e}')
-        
+        raise
+
     return value
 
-
-
-# def rmse(
-#         data:NDArray | xarray.DataArray,
-# ) -> float:
-    
-#     """
-#     Score the root mean square error (RMSE) between the data.
-#     """
-        
-#     if isinstance(data, xarray.DataArray):
-#          data = data.values
-
-#     value = numpy.sqrt(numpy.nanmean((data**2)))
-        
-#     return value
     
 
 def wavenumber(
@@ -287,3 +270,31 @@ def grids_to_prisms(
 
     # add zref as an attribute
     return prisms.assign_attrs(zref = reference)
+
+
+def extract_data(
+    data: xarray.DataArray, 
+    target_line: xarray.DataArray,
+) -> xarray.DataArray:
+    """
+    Get the data values along the line.
+    dims = [dim for dim in control_line_list[24].dims] --> to get the dims' name.
+    """
+    
+    east = xarray.DataArray(
+                numpy.linspace(
+                    target_line.easting.min(),
+                    target_line.easting.max(),
+                    target_line.size,
+                ),
+            )
+    north = xarray.DataArray(
+                numpy.linspace(
+                    target_line.northing.min(),
+                    target_line.northing.max(),
+                    target_line.size,
+                ),
+            )
+
+    line = data.interp(easting = east, northing = north, method = 'cubic')
+    return line

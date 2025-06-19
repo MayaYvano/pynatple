@@ -2,25 +2,16 @@
 import numpy
 import xarray
 import math
-import time
 import logging
 import copy
 
 from xrft.xrft import fft as _fft
 from xrft.xrft import ifft as _ifft
 from numpy.typing import NDArray
-from typing import Any, Dict, List, Tuple, Union, Callable, Optional
+from typing import Any, List, Tuple, Optional
 
-from pynatple import util
-
-# Definition of hyperparamter:
-Hyperparameter = Tuple[int | float | NDArray, int | float]
-# The first one is density contrast, then reference depth
-
-# Basic operator in this algorithm:
-ForwardFunc = Callable[[xarray.DataArray, Hyperparameter], xarray.DataArray]
-InverseFunc = Callable[[xarray.DataArray, Hyperparameter], xarray.DataArray]
-FilterFunc = Callable[[xarray.DataArray | NDArray, float, float], NDArray]
+from pynatple import util # type: ignore[self-owned module]
+from pynatple.pronounce import Hyperparameter, ForwardFunc, FilterFunc, InverseFunc # type: ignore
 
 # set the log procedure
 logger = logging.getLogger(__name__)
@@ -31,65 +22,13 @@ logging.basicConfig(format = '%(name)s - %(levelname)s -> %(message)s')
 #Constants
 Newton_universal_gravity_constants = 6.67430e-11  # m^3 kg^-1 s^-2
 
-#class Inversion:
-#
-#    def __init__(
-#            self,
-#            grid:xarray.DataArray,
-#            zref:float,
-#            drho:float,
-#    ):
-#        
-#        self.grid = grid
-#        self.zref = zref
-#        self.drho = drho
-#    
-
-# def first_term(
-#         grid:xarray.DataArray | NDArray,
-#         zref:float,
-#         drho:float,
-#         #plot:bool = False,
-# ) -> xarray.DataArray:
-    
-#     """
-#     First term of the Oldenburg's reformulation of Parker's algorithm.
-
-#     ------------
-#     Parameters:
-#     grid : xarray.DataArray
-#         Gravity data.
-#     zref : float
-#         Reference depth (m) of the interface.
-#     drho : float
-#         Density contrast (kg/m^3) of the causative interface.
-#     plot : bool, optional
-#         If True, plot the result.
-
-#     ------------
-#     Returns:
-#     xarray.DataArray
-#         First term of the Oldenburg's reformulation. 
-#         Equivalent with the first iteration of the whole inversion algorithm. 
-#         The value is in wavenumber domain (pre-ifft).
-#     """
-
-#     G = Newton_gravity_constants
-#     k = util.wavenumber(grid)
-        
-#     up = _fft(grid) * numpy.exp((k) * (zref))
-#     down = 2 * numpy.pi * G * drho
-#     h0_fft = up / down
-
-#     return h0_fft
-    
 
 # NOT USED ANYMORE. BUT NOT BECAUSE IT DOESN'T WORK PERFECTLY.
 def taylor_expansion(
         elev:xarray.DataArray,
         n:int,
         kgrid:xarray.DataArray | NDArray | None = None,
-) -> xarray.DataArray:
+) -> NDArray:
     
     """
     Taylor expansion for the algorithm. 
@@ -124,12 +63,9 @@ def taylor_expansion(
             msg = "Either elevation grid or kgrid (i.e. wavenumber vector) must be provided."
             raise ValueError(msg)
 
-    #elif (kgrid is None) and (elev is None):
-    #    msg = "Either elevation grid or kgrid (i.e. wavenumber vector) must be provided."
-    #    raise ValueError(msg)
 
     for ni in range(1, n + 1):
-        var_fft = ((kgrid)**(ni - 1) / math.factorial(ni)) * _fft(elev**ni)
+        var_fft = ((kgrid)**(ni - 1) / math.factorial(ni)) * _fft(elev**ni) # type: ignore
         vars_fft += var_fft
 
     return vars_fft
@@ -202,10 +138,16 @@ def parker_forward(
 
         gfft = first * expansion
 
+    else:
+        raise TypeError("Unsupported type for density_contrast: {}".format(type(density_contrast)))
+
     result = _ifft(gfft).real
 
     result.name = 'gravity'
     if unit == 'mGal':
+        result = result.assign_attrs(
+            {'unit': 'mGal'},
+        )
         return result * 1e5 # SI to mGal
 
     return result
@@ -215,8 +157,8 @@ def parker_oldenburg_inversion(
     data:xarray.DataArray,
     hyperparam:Hyperparameter,
     filter_func:Optional[FilterFunc] = None,
-    upper_cutoff:Optional[float] = None,
     lower_cutoff:Optional[float] = None,
+    upper_cutoff:Optional[float] = None,
     **kwargs: Any,    
 ) -> xarray.DataArray:
     
@@ -265,11 +207,15 @@ def parker_oldenburg_inversion(
         dtype = numpy.complex128,
     )
 
+    elev = None
     for n in range(1, max_iteration + 1):
 
         if n == 1:
             elev = _ifft(first).real
         else:
+            # Ensure elev is defined before use
+            if elev is None:
+                elev = _ifft(first).real
             var = ((kgrid)**(n - 1) / math.factorial(n)) * _fft((elev)**n)
             if var.isnull().any():
                 break
@@ -531,6 +477,10 @@ def run_inversion(
         Inversion function. Default is built-in 'parker_oldenburg_inversion'.
     filter_func : callable, optional
         Filter function to apply on the inverted depth. Default is None.
+    upper_cutoff : float, optional
+        Upper cutoff wavenumber for the filter function. Must be provided if filter_func is not None.
+    lower_cutoff : float, optional
+        Lower cutoff wavenumber for the filter function. Must be provided if filter_func is not None.
     kwargs : dict, optional
         Additional keyword arguments.
         max_iteration : int, optional
@@ -539,12 +489,6 @@ def run_inversion(
             Tolerance for the L2 norm. Default is 20.
         delta_emse_tolerance : float, optional
             Tolerance for the rmse ratio. Default is 1.008.
-        filter_upper_cutoff : float, optional
-            Upper cutoff wavenumber for the filter function. Default is None, but 
-            mandatory if filter_func not None.
-        filter_lower_cutoff : float, optional
-            Lower cutoff wavenumber for the filter function. Default is None, but 
-            mandatory if filter_func not None.
     
     ------------
     Returns:
@@ -599,6 +543,7 @@ def run_inversion(
             else:
                 raise ValueError("Gravity variable did not exist.")
         else:
+            observed_gravity = copied['gravity']
             dataset = copied
     
     # observed_gravity = dataset['gravity']
@@ -610,16 +555,25 @@ def run_inversion(
 
         backup = copy.deepcopy(dataset)
         grid = dataset['gravity']
+        if (filter_func is not None) and (upper_cutoff is None or lower_cutoff is None):
+            raise ValueError("Both upper_cutoff and lower_cutoff must be provided when using a filter function.")
+
         inverted_elev = inverse_func(
-            data = grid,
-            hyperparam = hyperparam,
-            filter_func = filter_func,
-            upper_cutoff = upper_cutoff,
-            lower_cutoff = lower_cutoff,
+            grid,
+            hyperparam,
+            filter_func, # type: ignore
+            upper_cutoff, # type: ignore
+            lower_cutoff, # type: ignore
         )
 
+        # Ensure observed_gravity is a DataArray, not a Dataset
+        if isinstance(observed_gravity, xarray.Dataset):
+            observed_gravity_da = observed_gravity['gravity']
+        else:
+            observed_gravity_da = observed_gravity
+
         dataset, score = update_misfit_and_gravity(
-            observed_gravity,
+            observed_gravity_da,
             inverted_elev,
             hyperparam,
             n,
@@ -660,6 +614,9 @@ def run_inversion(
             )
             break
 
+    # Ensure the first return value is always a Dataset
+    if isinstance(dataset, xarray.DataArray):
+        dataset = xarray.Dataset({'result': dataset})
     return (dataset, scores, delta_scores)
 
 
