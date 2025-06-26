@@ -3,6 +3,7 @@ This is library for simplification of type hinting in pynatple.
 """
 
 import xarray
+import pandas
 from numpy.typing import NDArray
 from typing import List, Optional, Callable, Tuple
 
@@ -19,7 +20,7 @@ Individual = BitString | Hyperparameter
 Population = List[Individual]
 
 # And for shorter writing:
-DepthData = xarray.DataArray | xarray.Dataset | List[xarray.DataArray]
+DepthData = pandas.DataFrame | xarray.DataArray | xarray.Dataset | List[xarray.DataArray]
 
 # THE EVOLUTIONARY OPERATOR
 PopulateFunc = Callable[[int, Hyperparameter, Hyperparameter, bool], Population]

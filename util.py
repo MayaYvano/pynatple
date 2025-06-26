@@ -8,7 +8,7 @@ from xrft.xrft import fft as _fft
 from xrft.xrft import ifft as _ifft
 from numpy.typing import NDArray
 
-from pynatple.prononuce import Hyperparameter, Individual #type: ignore
+from pynatple.pronounce import Hyperparameter, Individual #type: ignore
 
 def binary(
     input:Hyperparameter,

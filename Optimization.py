@@ -1,5 +1,6 @@
 import numpy
 import xarray
+import pandas
 import time
 import copy
 import logging
@@ -93,11 +94,27 @@ def fitness(
     )
 
     if depth_control is not None:
-            if isinstance(depth_control, xarray.DataArray):
+            if isinstance(depth_control, pandas.DataFrame):
+                misfit = []
+                df = depth_control.reset_index()
+                for i in range(len(df)):
+                    x, y = df.iloc[i][0], df.iloc[i][1]
+                    depth = df.iloc[i][2]
+
+                    eval_points = result.inverted_depth.sel(easting = x, 
+                                                            northing = y, 
+                                                            method = 'nearest',
+                                                            tolerance = 1e3) # 1km tolerance
+                    val = depth - (hyperparameter[1] - eval_points.values)
+                    misfit.append(util.eval(val, metric = 'rmse'))
+                
+                return float(numpy.nanmean(misfit))
+
+            elif isinstance(depth_control, xarray.DataArray):
                 eval_points = result.inverted_depth.sel(easting = depth_control.easting, 
                                                         northing = depth_control.northing, 
                                                         method = 'nearest')
-                val = depth_control - eval_points.values
+                val = depth_control - (hyperparameter[1] - eval_points.values)
 
                 return float(util.eval(val, metric = 'rmse'))
             
@@ -106,7 +123,7 @@ def fitness(
                 misfit = []
                 for var in data_vars:
                     eval_points = util.extract_data(result.inverted_depth, depth_control[var])
-                    val = depth_control[var] - eval_points.values
+                    val = depth_control[var] - (hyperparameter[1] - eval_points.values)
                     misfit.append(util.eval(val, metric = 'rmse'))
 
                 return float(numpy.nanmean(misfit))
@@ -115,13 +132,15 @@ def fitness(
                 misfit = []
                 for da in depth_control:
                     eval_points = util.extract_data(result.inverted_depth, da)
-                    val = da - eval_points.values
+                    val = da - (hyperparameter[1] - eval_points.values)
                     misfit.append(util.eval(val, metric = 'rmse'))
 
                 return float(numpy.nanmean(misfit))
             
             else:
-                raise TypeError("depth_control must be a Dataset or a list of DataArrays.")
+                raise TypeError(
+                    "depth_control must be a DataFrame, Dataset, DataArray, or List of DataArray."
+                )
 
     return result.attrs['evaluation_score']
 
@@ -336,7 +355,7 @@ def statsprint(
 
 def run_evolution(
     data: xarray.DataArray,
-    depth_control: xarray.Dataset | xarray.DataArray | List,
+    depth_control: DepthData,
     population_size: int,
     generation_limit: int,
     rmse_criteria: float,
@@ -356,7 +375,69 @@ def run_evolution(
     # If you want to get all generations instead, turn this to True:
     get_all_result: bool = False,
     **kwargs,
-) -> Tuple[Population, int, Population]:
+) -> Tuple[Population, List[float], Population]:
+    
+    """
+    This function will do the evolution process of the optimization iteratively.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        The basis data to be inverted.
+    depth_control : pandas.DataFrame | xarray.Dataset | xarray.DataArray | List
+        The depth control data to supervise the optimization.
+        - If its a DataFrame, it should have columns for easting, northing, and depth in order at 
+          least. Use this format if you have a scatter or iregular plotted depth control.
+        - If its a DataArray, it should have dims with the name of easting and northing. Use this
+          format if you have a regular gridded depth control.
+        - If its a Dataset, it should have dims with the name of easting and northing. Right now it 
+          is not recomended to use this format, except you have a single line depth control.
+        - If its a List, it should be a list of DataArray with the same dims as above. Use this 
+          format if you have multiple line to supervise the optimization.
+    population_size : int
+        The amount of individuals in the population.
+    generation_limit : int
+        The maximum number of generations to run the optimization.
+    rmse_criteria : float
+        The RMSE criteria to stop the optimization. 
+    crossover_rate : float, optional
+        The crossover rate for the crossover function. Default is 0.5.
+    crossover_proportion : float, optional
+        The proportion of crossover to apply. Default is 0.99.
+    mutation_rate : float, optional
+        The mutation rate for the mutation function. Default is 0.5.
+    selection_method : str, optional
+        The selection method to use for selecting parents. Default is 'roulette_wheel'.
+    binary : bool, optional
+        If True, the individuals will be represented as binary strings. Default is False.
+    populational_evaluation : bool, optional
+        If True, the fitness will be evaluated as the average of the population.
+        If False, the fitness will be evaluated as the first individual's fitness. Default is False.
+    lower_bound : Hyperparameter, optional
+        The lower bound for the hyperparameters. Default is 300 kgm^-3 and -20000 m.
+    upper_bound : Hyperparameter, optional
+        The upper bound for the hyperparameters. Default is 600 kgm^-3 and -40000 m.
+    populate_func : PopulateFunc, optional
+        The function to generate the initial population.
+    fitness_func : FitnessFunc, optional
+        The function to calculate the fitness of an individual. 
+    crossover_func : CrossoverFunc, optional
+        The function to perform crossover between two individuals. Default is crossover based on paper 
+        by Yu et al. [2025].
+    mutation_func : MutationFunc, optional
+        The function to perform mutation on an individual. Default is mutation based on paper by Yu et al.
+        [2025].
+    printer : Optional[PrinterFunc], optional
+        A function to print the statistics of the evolution process. If None, no printing will be done.
+
+    **kwargs : Any, optional
+
+    Returns
+    -------
+    Tuple[Population, List[float], Population]
+        A tuple containing the final population, the generational fitness scores, and the hall of fame i.e. 
+        the best individual for each generations.
+    """
     
     # NO-DEPTH CONTROL WARNING
     if depth_control is None:
@@ -372,6 +453,7 @@ def run_evolution(
     )
 
     generational_list = []
+    generational_fitness = []
     hall_of_fame = []
     
     start = time.perf_counter()
@@ -379,13 +461,10 @@ def run_evolution(
     for i in range(1, generation_limit + 1):
         population = sort_population(population, data, depth_control)
         generational_list.append(population)
-        hall_of_fame.append(population[0])
-
-        # ORIGINALLY BEING A BACKUP BUT NOW IT SERVE NO PURPOSE.
-        # BUT I STILL HESITATE TO ERASE IT. IDK.
-        clone = copy.deepcopy(population)
+        hall_of_fame.append(population[0])        
 
         scores = population_fitness(population, data, fitness_func, depth_control, **kwargs)
+        generational_fitness.append(sum(scores) / len(scores))
 
         if printer is not None:
             printer(population, i, scores)
@@ -404,6 +483,10 @@ def run_evolution(
                 break
             else:
                 pass
+        
+        # MAKE A BACKUP PLAN
+        # UNUSED, BUT HESITATE TO REMOVE IT.
+        clone = copy.deepcopy(population)
 
         # EVOLUTION TIME! 
         next_generation = population[0:2]
@@ -464,6 +547,6 @@ def run_evolution(
     )
 
     if get_all_result:
-        return generational_list, i, hall_of_fame
+        return generational_list, generational_fitness, hall_of_fame
     else:
-        return population, i, hall_of_fame
+        return population, generational_fitness, hall_of_fame
