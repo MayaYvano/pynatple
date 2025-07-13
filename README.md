@@ -8,7 +8,7 @@ The current dependency is still light:
 3. xrft, to perform Fourier transform in xarray architecture;
 4. That's it!
 
-This package is still juvenile, so there are i vast space to improve and discuss.
+This package is still juvenile, so it has a vast space to improve and discuss.
 
 Main reference:
 1. Oldenburg, D. W. (1974). The inversion and interpretation of gravity anomalies. GEOPHYSICS, 39(4), 526–536. (https://doi.org/10.1190/1.1440444)
