@@ -298,3 +298,33 @@ def extract_data(
 
     line = data.interp(easting = east, northing = north, method = 'cubic')
     return line
+
+
+def get_eval_points(
+    evaluated_data: xarray.DataArray,
+    control_data: xarray.DataArray,
+    method:str = 'nearest',
+    tolerance: float | None = None,
+):
+    
+    if evaluated_data.dims != ('northing', 'easting'):
+        evaluated_data = evaluated_data.rename({evaluated_data.dims[0]: 'northing', evaluated_data.dims[1]: 'easting'})
+    if control_data.dims != ('northing', 'easting'):
+        control_data = control_data.rename({control_data.dims[0]: 'northing', control_data.dims[1]: 'easting'})
+    
+    if method not in ['nearest', 'linear', 'cubic']:
+        msg = "Method must be one of 'nearest', 'linear', or 'cubic'."
+        raise ValueError(msg)
+    
+    eval_points = evaluated_data.sel(
+        easting = control_data.easting, 
+        northing = control_data.northing, 
+        method = method,
+        tolerance = tolerance,
+    )
+    
+    if eval_points.size == 0:
+        msg = "No evaluation points found. Check the method and tolerance."
+        raise ValueError(msg)
+    
+    return eval_points
