@@ -13,3 +13,4 @@ This package is still juvenile, so it has a vast space to improve and discuss.
 Main reference:
 1. Oldenburg, D. W. (1974). The inversion and interpretation of gravity anomalies. GEOPHYSICS, 39(4), 526–536. (https://doi.org/10.1190/1.1440444)
 2. Parker, R. L. (1973). The Rapid Calculation of Potential Anomalies. Geophysical Journal International, 31(4), 447–455. (https://doi.org/10.1111/j.1365-246X.1973.tb06513.x)
+3. Yu, H. et al. (2025). Moho topographic inversion of the South China Sea based on genetic algorithm. Journal of Asian Earth Sciences, 277. (10.1016/j.jseaes.2024.106396)
