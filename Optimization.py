@@ -248,6 +248,8 @@ class Evolution:
     ) -> List[Individual]:
         match method:
             case 'roulette_wheel':
+                if 0 in weights:
+                    weights = [w if w != 0 else 0.001 for w in weights]
                 return choices(
                     population = population,
                     weights = [1.0 / weight for weight in weights],
