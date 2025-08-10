@@ -73,7 +73,7 @@ class Evolution:
     def __init__(
         self,
         data: xarray.DataArray,
-        control: xarray.DataArray,
+        supervisor: xarray.DataArray | pandas.DataFrame,
         lower_bound: Tuple[int, int],
         upper_bound: Tuple[int, int],
         population_size: int,
@@ -82,9 +82,10 @@ class Evolution:
         crossover_proportion: float,
         mutation_rate: float,
         modeling_func: InverseFunc,
+        in_binary: bool = False,
     ):
         self._data = data
-        self._control = control
+        self._supervisor = supervisor
         self._lower_bound = lower_bound
         self._upper_bound = upper_bound
         self._population_size = population_size
@@ -93,6 +94,7 @@ class Evolution:
         self._crossover_proportion = crossover_proportion
         self._mutation_rate = mutation_rate
         self._modeling_func = modeling_func
+        self._in_binary = in_binary
         self.range = (
             numpy.abs(self._upper_bound[0] - self._lower_bound[0]),
             numpy.abs(self._upper_bound[1] - self._upper_bound[1]),
@@ -104,7 +106,11 @@ class Evolution:
     ) -> Individual:
         random_density_contrast = randint(int(self._lower_bound[0]), int(self._upper_bound[0]))
         random_reference_depth = randint(int(self._upper_bound[1]), int(self._lower_bound[1]))
-        return (random_density_contrast, random_reference_depth)
+
+        if self._in_binary:
+            return util.binary((random_density_contrast, random_reference_depth))
+        else:
+            return (random_density_contrast, random_reference_depth)
     
 
     def initialize_population(
@@ -116,33 +122,46 @@ class Evolution:
     def fitness(
         self,
         a: Individual,
+        tolerance: float | None = None,
         **kwargs,
     ) -> float:  
 
+        if isinstance(a, BitString):
+            a = util.unbinary(a)
+            
         pre = self._modeling_func(self._data, a, **kwargs)
-        eval_points = util.get_eval_points(pre, self._control)
-        miss = self._control.values - (a[1] - eval_points).values
-        return util.eval(miss, metric = 'rmse')
+        eval_points = util.get_eval_points(
+            evaluated_data = pre, 
+            control_data = self._supervisor, 
+            tolerance = tolerance, 
+            factor = a[1],
+        )
+        return util.eval(eval_points, metric = 'rmse')
     
 
-    # def single_point_crossover(
-    #     self,
-    #     a,
-    #     b,
-    # ):
-    #     probability = self.mutation_rate
-    #     if len(a) != len(b):
-    #         raise ValueError("Both individuals must have a same length")
+    def binary_sp_xover(
+        self,
+        a: Individual,
+        b: Individual,
+    ) -> Tuple[Individual, Individual]:
+        if len(a) != len(b):
+            raise ValueError("Both individuals must have a same length")
+        
+        if self._crossover_proportion is None:
+            self._crossover_proportion = 0.5
 
-    #     length = len(a)
+        if self._crossover_rate < uniform(0, 1):
+            return a, b
+        else:
+            length = len(a)
 
-    #     if length < 2:
-    #         return a, b
+            if length < 2:
+                return a, b
 
-    #     p = randint(1, length - 1)
-    #     return a[0:p] + b[p:], b[0:p] + a[p:]
+            p = randint(1, length - 1)
+            return a[0:p] + b[p:], b[0:p] + a[p:]
 
-    def xover(
+    def sp_xover(
         self,
         a: Individual,
         b: Individual,
@@ -168,8 +187,8 @@ class Evolution:
                 b = util.unbinary(b)
 
             # X-over for density contrast
-            c1 = float(a[0]) * self._crossover_proportion + float(b[0]) * (1 - self._crossover_proportion)
-            c2 = float(b[0]) * self._crossover_proportion + float(a[0]) * (1 - self._crossover_proportion)
+            c1 = abs(float(a[0]) * self._crossover_proportion + float(b[0]) * (1 - self._crossover_proportion))
+            c2 = abs(float(b[0]) * self._crossover_proportion + float(a[0]) * (1 - self._crossover_proportion))
             # X-over for reference depth
             d1 = float(a[1]) * self._crossover_proportion + float(b[1]) * (1 - self._crossover_proportion)
             d2 = float(b[1]) * self._crossover_proportion + float(a[1]) * (1 - self._crossover_proportion)
@@ -190,22 +209,26 @@ class Evolution:
         return c, d
     
 
-    # def mutation(
-    #     self,
-    #     a,
-    #     num: int = 1, 
-    # ):
-    #     a_ = list(map(int, a))
-    #     for _ in range(num):
-    #         index = randrange(len(a_))
-    #         if uniform(0, 1) > self.mutation_rate:
-    #             a_[index] = a_[index] 
-    #         else: 
-    #             a_[index] = abs(a_[index] - 1)
-    #     return ''.join(map(str, a_))
+    def binary_mutation(
+        self,
+        a: Individual,
+        num: int = 1, 
+    ) -> Individual:
+        
+        if self._mutation_rate < uniform(0, 1) and a[0] != 0:
+            return a
+        else:
+            a_ = list(map(int, a))
+            for _ in range(num):
+                index = randrange(len(a_))
+                if uniform(0, 1) > self.mutation_rate:
+                    a_[index] = a_[index] 
+                else: 
+                    a_[index] = abs(a_[index] - 1)
+            return ''.join(map(str, a_))
     
 
-    def mutate(
+    def mutation(
         self,
         a: Individual,
         generation: int,
@@ -214,7 +237,7 @@ class Evolution:
         This based on what shown in Yu et al. [2025].
         """
         
-        if self._mutation_rate < uniform(0, 1):
+        if self._mutation_rate < uniform(0, 1) and a[0] != 0:
             return a
         else:
 
@@ -222,7 +245,7 @@ class Evolution:
             p = uniform(0, 1)
 
             # Mutation over density contrast
-            c = int(a[0] + self.range[0] * r * p**(generation / self._max_generation))
+            c = abs(int(a[0] + self.range[0] * r * p**(generation / self._max_generation)))
             # Mutation over reference depth
             d = int(a[1] + self.range[1] * r * p**(generation / self._max_generation))
 
@@ -246,10 +269,14 @@ class Evolution:
         weights: List[float],
         parent_num: int = 2,
     ) -> List[Individual]:
+        
+        if 0 in weights:
+            weights = [w if w != 0 else 0.001 for w in weights]
+        if numpy.nan in weights:
+            weights = [w if w != numpy.nan else 10000 for w in weights]
+
         match method:
             case 'roulette_wheel':
-                if 0 in weights:
-                    weights = [w if w != 0 else 0.001 for w in weights]
                 return choices(
                     population = population,
                     weights = [1.0 / weight for weight in weights],
@@ -264,11 +291,12 @@ class Evolution:
     def sort_population(
         self,
         population: Population,
+        tolerance: float | None = None,
         **kwargs,
     ) -> Population:
         return sorted(
             population,
-            key = lambda a: self.fitness(a, **kwargs)
+            key = lambda a: self.fitness(a, tolerance, **kwargs),
         )
     
 
@@ -371,14 +399,14 @@ class Evolution:
     
     
     @property
-    def control(self) -> xarray.DataArray:
-        return self._control
+    def supervisor(self) -> xarray.DataArray | pandas.DataFrame:
+        return self._supervisor
     
-    @control.setter
-    def control(self, value: xarray.DataArray):
-        if not isinstance(value, xarray.DataArray):
-            raise ValueError("Control must be an xarray DataArray.")
-        self._control = value
+    @supervisor.setter
+    def supervisor(self, value: xarray.DataArray | pandas.DataFrame):
+        if not isinstance(value, xarray.DataArray | pandas.DataFrame):
+            raise ValueError("Control must be an xarray DataArray or pandas DataFrame.")
+        self._supervisor = value
 
     
     def genetic_algorithm(
@@ -388,11 +416,13 @@ class Evolution:
         convergence_repetition: int = 3,
         convergence_tolerance: float = 0.01,
         populational_evaluation: bool = False,
+        evaluation_max_distance: float | None = None,
         printer: Optional[PrinterFunc] = None,
         get_all_result: bool = False,
         parallel: bool = False,
     ):
         gen_list = []
+        gen_scores = []
         gen_fit = []
         hall_of_fame = {}
 
@@ -401,17 +431,20 @@ class Evolution:
 
         i = 0
         for i in range(1, self._max_generation + 1):
-            population = self.sort_population(population)
+            population = self.sort_population(population, evaluation_max_distance)
             gen_list.append(population)
 
             if parallel:
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    futures = [executor.submit(self.fitness, individual) for individual in population]
+                    futures = [executor.submit(self.fitness, individual, evaluation_max_distance) for individual in population]
                     scores = [future.result() for future in concurrent.futures.as_completed(futures)]
             else:
-                scores = [self.fitness(individual) for individual in population]
+                scores = [self.fitness(individual, evaluation_max_distance) for individual in population]
 
+            scores = [score if score is not numpy.nan else 10000 for score in scores]
+            
             gen_fit.append(sum(scores) / len(scores))
+            gen_scores.append(scores)
             hall_of_fame.update({population[0]: scores[0]})
 
             if printer is not None:
@@ -450,13 +483,9 @@ class Evolution:
             clone = copy.deepcopy(population)
 
             # EVOLUTION TIME! 
-            next_generation = population[0:2]
+            next_generation = clone[0:2]
 
             for _ in range(int(len(population) / 2) - 1):
-
-                if numpy.nan in scores or 0 in scores:
-                    print("NaN found in scores, breaking the loop.")
-                    pass
 
                 # Parental selection
                 parents = self.selection_pair(
@@ -465,21 +494,33 @@ class Evolution:
                     weights = scores,
                 )
 
-                # Crossover
-                offspring_a, offspring_b = self.xover(
-                    a = parents[0], 
-                    b = parents[1],
-                )
+                if self._in_binary:
+                    # Crossover
+                    offspring_a, offspring_b = self.binary_sp_xover(
+                        a = parents[0], 
+                        b = parents[1],
+                    )
 
-                # Mutation
-                offspring_a = self.mutate(
-                    offspring_a,
-                    generation=i,
-                )
-                offspring_b = self.mutate(
-                    offspring_b,
-                    generation=i,
-                )
+                    # Mutation
+                    offspring_a = self.binary_mutation(offspring_a)
+                    offspring_b = self.binary_mutation(offspring_b)
+
+                else:
+                    # Crossover
+                    offspring_a, offspring_b = self.sp_xover(
+                        a = parents[0], 
+                        b = parents[1],
+                    )
+
+                    # Mutation
+                    offspring_a = self.mutation(
+                        offspring_a,
+                        generation=i,
+                    )
+                    offspring_b = self.mutation(
+                        offspring_b,
+                        generation=i,
+                    )
 
                 # Get the new generation
                 next_generation.extend([offspring_a, offspring_b])
@@ -504,6 +545,6 @@ class Evolution:
         )
         
         if get_all_result:
-            return gen_list, gen_fit, hall_of_fame
+            return gen_list, gen_scores, hall_of_fame
         else:
             return population, gen_fit, hall_of_fame

@@ -193,7 +193,7 @@ def parker_oldenburg_inversion(
     
     G = Newton_universal_gravity_constants
     density_contrast, reference_depth = hyperparam
-    max_iteration = kwargs.get('max_iteration', 10)
+    max_order = kwargs.get('max_order', 10)
     grav_unit = kwargs.get('grav_unit', 'mGal')
 
     grav = copy.deepcopy(data)
@@ -208,7 +208,7 @@ def parker_oldenburg_inversion(
     )
 
     elev = None
-    for n in range(1, max_iteration + 1):
+    for n in range(1, max_order + 1):
 
         if n == 1:
             elev = _ifft(first).real

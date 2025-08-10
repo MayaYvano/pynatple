@@ -3,6 +3,7 @@ import numpy
 import xarray
 import harmonica
 import struct
+import pandas
 
 from xrft.xrft import fft as _fft
 from xrft.xrft import ifft as _ifft
@@ -302,29 +303,52 @@ def extract_data(
 
 def get_eval_points(
     evaluated_data: xarray.DataArray,
-    control_data: xarray.DataArray,
+    control_data: xarray.DataArray | pandas.DataFrame,
     method:str = 'nearest',
     tolerance: float | None = None,
-):
+    factor: float | None = None,
+) -> numpy.ndarray:
     
     if evaluated_data.dims != ('northing', 'easting'):
         evaluated_data = evaluated_data.rename({evaluated_data.dims[0]: 'northing', evaluated_data.dims[1]: 'easting'})
-    if control_data.dims != ('northing', 'easting'):
-        control_data = control_data.rename({control_data.dims[0]: 'northing', control_data.dims[1]: 'easting'})
-    
     if method not in ['nearest', 'linear', 'cubic']:
-        msg = "Method must be one of 'nearest', 'linear', or 'cubic'."
-        raise ValueError(msg)
+        msg1 = "Method must be one of 'nearest', 'linear', or 'cubic'."
+        raise ValueError(msg1)
     
-    eval_points = evaluated_data.sel(
-        easting = control_data.easting, 
-        northing = control_data.northing, 
-        method = method,
-        tolerance = tolerance,
-    )
+    if isinstance(control_data, pandas.DataFrame):
+        cols = ['easting', 'northing', 'depth']
+        if all(col in control_data.columns for col in cols) is False:
+            msg2 = "'control_data' DataFrame needs all the following columns: {cols}."
+            raise ValueError(msg2)    
+        controler = control_data.copy().set_index(['northing', 'easting']).to_xarray().depth
+
+    elif isinstance(control_data, xarray.DataArray):
+        controler = control_data.copy()
+        if controler.dims != ('northing', 'easting'):
+            controler = controler.rename({controler.dims[0]: 'northing', controler.dims[1]: 'easting'})
     
-    if eval_points.size == 0:
-        msg = "No evaluation points found. Check the method and tolerance."
-        raise ValueError(msg)
+
+    controler_stacked = controler.stack(points = ['northing', 'easting'])
+    controler_nonull = controler_stacked[controler_stacked.notnull()]
+
+    point_list = []
+    for i in range(len(controler_nonull)):
+        point = evaluated_data.sel(
+            northing = controler_nonull.indexes['points'][i][0],
+            easting = controler_nonull.indexes['points'][i][1],
+            method = method,
+            tolerance = tolerance,
+        )
+        point_list.append(point.values)
+
     
-    return eval_points
+    if len(point_list) == 0:
+        msg3 = "No evaluation points found. Check the method and tolerance."
+        raise ValueError(msg3)
+    
+    if factor is not None:
+        point_score = controler_nonull.values - (factor - numpy.array(point_list))
+        return point_score
+    
+    else:
+        return numpy.array(point_list)
