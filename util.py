@@ -352,3 +352,117 @@ def get_eval_points(
     
     else:
         return numpy.array(point_list)
+
+
+def airy_heiskanen_isostasy(
+    topography: xarray.DataArray,
+    crust_thickness: float,
+    crust_density: float,
+    mantle_density: float,
+    water_density: float = 1040.,
+) -> xarray.DataArray:
+    
+    """
+    Calculate vetical depth variation for idealized isostatic compensation model based on
+    Airy-Heiskanen hypothesis.
+
+    Parameters
+    ----------
+    topography : xarray.DataArray
+        Topography data.
+    crust_thickness : float
+        Constant thickness of the crust in meters.
+    crust_density : float
+        Density of the crust in kg/m^3.
+    mantle_density : float
+        Density of the mantle in kg/m^3.
+    water_density : float, optional
+        Density of water in kg/m^3, by default 1040.
+
+    Returns
+    -------
+    xarray.DataArray
+    """
+
+    iso = xarray.where(topography < 0,
+                    (topography * ((crust_density - water_density)) / (mantle_density - crust_density)),
+                    (topography * crust_density) / (mantle_density - crust_density))
+    
+    if crust_thickness > 0:
+        crust_thickness *= -1
+    
+    return crust_thickness - iso
+
+
+def pratt_hayford_isostasy(
+    topography: xarray.DataArray,
+    crust_thickness: float,
+    crust_density: float,
+    water_density: float = 1040.,
+) -> xarray.DataArray:
+    
+    """
+    Calculate lateral density variation for idealized isostatic compensation model based on
+    Pratt-Hayford hypothesis.
+
+    Parameters
+    ----------
+    topography : xarray.DataArray
+        Topography data.
+    crust_thickness : float
+        Constant thickness of the crust in meters.
+    crust_density : float
+        Density of the crust in kg/m^3.
+    water_density : float, optional
+        Density of water in kg/m^3, by default 1040.
+
+    Returns
+    -------
+    xarray.DataArray
+    """
+
+    if crust_thickness < 0:
+        crust_thickness *= -1
+
+    return xarray.where(topography < 0,
+            ((crust_density * crust_thickness + water_density * topography) / (crust_thickness + topography)),
+            ((crust_density * crust_thickness) / (crust_thickness + topography)))
+
+
+def vertical_tectonic_stress(
+    moho_gravity: xarray.DataArray,
+    moho_isostatic: xarray.DataArray,
+    crust_density: float,
+    mantle_density: float = 3300.,
+    gravity_acceleration: float = 9.81,
+) -> xarray.DataArray:
+    """ 
+    Calculate the vertical tectonic stress based on the difference between
+    the gravity anomaly at the Moho and the isostatic compensation.
+    Equation based on Gao et al. [2019].
+
+    Gao, S., She, Y., & Fu, G. (2016). A new method for computing the vertical tectonic stress 
+    of the crust by use of hybrid gravity and GPS data. Chinese Journal of Geophysics, 59(6), 2006–2013. 
+    https://doi.org/10.6038/cjg20160607
+
+    Parameters
+    ----------
+    moho_gravity : xarray.DataArray
+        Moho depth based on gravitational observation. Positive downward.
+    moho_isostatic : xarray.DataArray
+        Moho depth based on isostatic compensation model. Preferably, calculated
+        based on Airy-Heiskanen models. Positive downward.
+    crust_density : float
+        Density of the crust in kg/m^3.
+    mantle_density : float, optional
+        Density of the mantle in kg/m^3, by default 3300.
+    gravity_acceleration : float, optional
+        Gravitational acceleration in m/s^2, by default 9.81.
+    
+    Returns
+    -------
+    xarray.DataArray
+        Vertical tectonic stress in Pa.
+    """
+
+    return ((moho_gravity - moho_isostatic.values) * (mantle_density - crust_density) * gravity_acceleration)
