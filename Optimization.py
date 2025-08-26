@@ -16,6 +16,7 @@ from pynatple.pronounce import ( # type: ignore
     Individual,
     Population,
     InverseFunc,
+    ForwardFunc,
     PrinterFunc,
 )
 
@@ -81,8 +82,10 @@ class Evolution:
         crossover_rate: float,
         crossover_proportion: float,
         mutation_rate: float,
-        modeling_func: InverseFunc,
+        inverse_func: InverseFunc,
+        forward_func: ForwardFunc,
         in_binary: bool = False,
+        eval_in_param: bool = False,
     ):
         self._data = data
         self._supervisor = supervisor
@@ -93,8 +96,10 @@ class Evolution:
         self._crossover_rate = crossover_rate
         self._crossover_proportion = crossover_proportion
         self._mutation_rate = mutation_rate
-        self._modeling_func = modeling_func
+        self._inverse_func = inverse_func
+        self._forward_func = forward_func
         self._in_binary = in_binary
+        self._eval_in_param = eval_in_param
         self.range = (
             numpy.abs(self._upper_bound[0] - self._lower_bound[0]),
             numpy.abs(self._upper_bound[1] - self._upper_bound[1]),
@@ -129,14 +134,21 @@ class Evolution:
         if isinstance(a, BitString):
             a = util.unbinary(a)
             
-        pre = self._modeling_func(self._data, a, **kwargs)
-        eval_points = util.get_eval_points(
-            evaluated_data = pre, 
-            control_data = self._supervisor, 
-            tolerance = tolerance, 
-            factor = a[1],
-        )
-        return util.eval(eval_points, metric = 'rmse')
+        pre = self._inverse_func(self._data, a, **kwargs)
+
+        if self._eval_in_param:
+            eval = util.get_eval_points(
+                evaluated_data = pre, 
+                control_data = self._supervisor, 
+                tolerance = tolerance, 
+                factor = a[1],
+            )
+        
+        else:
+            kal = self._forward_func(pre, a)
+            eval = self._data - kal.values
+
+        return util.eval(eval, metric = 'rmse')
     
 
     def binary_sp_xover(
@@ -378,13 +390,13 @@ class Evolution:
 
     @property
     def modeling_func(self) -> InverseFunc:
-        return self._modeling_func
+        return self._inverse_func
     
     @modeling_func.setter
     def modeling_func(self, value: InverseFunc):
         if not callable(value):
             raise ValueError("Modeling function must be callable.")
-        self._modeling_func = value
+        self._inverse_func = value
     
 
     @property
