@@ -121,9 +121,9 @@ def parker_forward(
     if isinstance(density_contrast, float | int):
         for n in range(1, max_iteration + 1):
             var = ((kgrid.values)**(n - 1) / math.factorial(n)) * _fft(elev**n)
-            if var.isnull().any():
+            if var.isnull().any(): #type: ignore
                 break
-            expansion += var.values
+            expansion += var.values #type: ignore
 
         gfft = first * density_contrast * expansion
     
@@ -132,9 +132,9 @@ def parker_forward(
             lower_boundary = xarray.zeros_like(elev)
         for n in range(1, max_iteration + 1):
             var = ((kgrid.values)**(n - 1) / math.factorial(n)) * _fft(density_contrast * (elev**n - lower_boundary**n))
-            if var.isnull().any():
+            if var.isnull().any(): #type: ignore
                 break
-            expansion += var.values
+            expansion += var.values #type: ignore
 
         gfft = first * expansion
 
@@ -217,9 +217,9 @@ def parker_oldenburg_inversion(
             if elev is None:
                 elev = _ifft(first).real
             var = ((kgrid)**(n - 1) / math.factorial(n)) * _fft((elev)**n)
-            if var.isnull().any():
+            if var.isnull().any(): #type: ignore
                 break
-            expansion += var.values
+            expansion += var.values #type: ignore
 
             # Apply the filter.
             if filter_func is not None:
@@ -293,7 +293,7 @@ def update_misfit_and_gravity(
     hyperparam: Hyperparameter,
     iteration_number: int,
     forward_func:ForwardFunc,
-    eval_method:Optional[str] = 'rmse',
+    eval_method:str = 'rmse',
 ) -> Tuple[xarray.Dataset, float]:
     
     """

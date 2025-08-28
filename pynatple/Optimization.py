@@ -134,7 +134,7 @@ class Evolution:
         if isinstance(a, BitString):
             a = util.unbinary(a)
             
-        pre = self._inverse_func(self._data, a, **kwargs)
+        pre = self._inverse_func(self._data, a, **kwargs) # type: ignore
 
         if self._eval_in_param:
             eval = util.get_eval_points(
@@ -145,7 +145,7 @@ class Evolution:
             )
         
         else:
-            kal = self._forward_func(pre, a)
+            kal = self._forward_func(pre, a) # type: ignore
             eval = self._data - kal.values
 
         return util.eval(eval, metric = 'rmse')
@@ -171,7 +171,9 @@ class Evolution:
                 return a, b
 
             p = randint(1, length - 1)
-            return a[0:p] + b[p:], b[0:p] + a[p:]
+            a_str = str(a)
+            b_str = str(b)
+            return a_str[0:p] + b_str[p:], b_str[0:p] + a_str[p:]
 
     def sp_xover(
         self,
