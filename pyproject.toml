@@ -1,0 +1,34 @@
+[project]
+name = 'pynatple'
+version = '0.0.1'
+dependencies = [
+    'numpy == 2.2.5',
+    'scipy == 1.15.3',
+    'xarray == 2025.4.0',
+    'xrft == 1.0.1',
+    'pandas == 2.2.3',
+]
+
+[build-system]
+requires = [
+    'setuptools == 69',
+]
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'pynatple',
+version = '0.0.1',
+description = 'A simple Python library for gravity inversion and optimization',
+requires-python = '>=3.7.0'
+authors = [
+    {name = 'Alfa', email = 'm.alfaxx08@gmail.com'},
+]
+license = {text = 'MIT}
+readme = {file = 'README.md', content-type = 'text/markdown'}
+dependencies = [
+    'numpy == 2.2.5',
+    'scipy == 1.15.3',
+    'xarray == 2025.4.0',
+    'xrft == 1.0.1',
+    'pandas == 2.2.3',
+]
